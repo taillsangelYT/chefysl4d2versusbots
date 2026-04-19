@@ -1,1 +1,0 @@
-SpawnEntityFromTable("env_soundscape_triggerable", { vscripts = "bots_throw_grenades" });
