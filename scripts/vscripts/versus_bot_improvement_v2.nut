@@ -37,9 +37,9 @@ ZOMBIE_SURVIVOR <- 9
 {
     think_interval          = 0.25,
     threat_update_interval  = 0.3,
-    follow_distance         = 300.0,
+    follow_distance         = 150.0,
     spread_distance         = 120.0,
-    max_follow_distance     = 500.0,
+    max_follow_distance     = 300.0,
     rescue_check_interval   = 0.15,   
     grenade_lock_duration   = 1.5,    
     ammo_refill_threshold   = 30,    
@@ -631,10 +631,6 @@ VBI_PRIMARY_WEAPONS <-
     "weapon_shotgun_chrome",
     "weapon_autoshotgun",
     "weapon_shotgun_spas",
-    "weapon_hunting_rifle",
-    "weapon_sniper_military",
-    "weapon_sniper_scout",
-    "weapon_sniper_awp",
     "weapon_grenade_launcher"
 ];
 
@@ -694,9 +690,17 @@ function VBI_RunAI()
             if (scope != null) scope["vbi_rescuing"] <- true;
 
             if (grabInfo.grabber != null && grabInfo.grabber.IsAlive())
+            {
+                // Shove if close enough to help peel faster (Anti-Jockey/Hunter)
+                if (VBI_Dist(bot.GetOrigin(), grabInfo.victim.GetOrigin()) < 120.0)
+                    ForcedButton(bot, ShoveButton);
+
                 VBI_Attack(bot, grabInfo.grabber);
+            }
             else
+            {
                 VBI_Move(bot, grabInfo.victim.GetOrigin());
+            }
             continue;
         }
         else
@@ -738,7 +742,21 @@ function VBI_RunAI()
     // Run ammo refill and primary weapon enforcer for all bots every think tick
     IHateYouEllis();
     foreach (bot in VBI_GetBots())
+    {
+        // Enforce no snipers
+        local inv = {};
+        GetInvTable(bot, inv);
+        if ("slot0" in inv && inv.slot0 != null)
+        {
+            local cn = inv.slot0.GetClassname();
+            if (cn.find("sniper") != null || cn.find("hunting_rifle") != null)
+            {
+                inv.slot0.Kill();
+                bot.GiveItem("weapon_rifle");
+            }
+        }
         VBI_CheckAmmo(bot);
+    }
 }
 
 

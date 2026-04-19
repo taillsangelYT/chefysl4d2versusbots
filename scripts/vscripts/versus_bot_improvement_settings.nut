@@ -22,6 +22,8 @@ VBI_USER_SETTINGS <-
 		sb_friend_immobilized_reaction_time_hard = "0"
 		sb_friend_immobilized_reaction_time_expert = "0"
 		allow_all_bot_survivor_team = "1"
+		sb_neighbor_range = "150"
+		sb_min_attention_notice_time = "0"
 	}
 }
 
