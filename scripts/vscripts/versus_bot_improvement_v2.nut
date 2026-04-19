@@ -223,8 +223,8 @@ function VBI_IsGrabbed(p)
     {
         // If incapped AND a hunter is nearby and alive, treat as pinned
         local hunter = null;
-        while ((hunter = Entities.FindByClassnameWithin(hunter, "player", p.GetOrigin(), 120)) != null)
-            if (hunter.GetZombieType() == ZOMBIE_HUNTER && hunter.IsAlive())
+        while ((hunter = Entities.FindInSphere(hunter, p.GetOrigin(), 120)) != null)
+            if (hunter.GetClassname() == "player" && hunter.GetZombieType() == ZOMBIE_HUNTER && hunter.IsAlive())
                 return true;
     }
 
@@ -249,8 +249,8 @@ function VBI_GetGrabber(p)
     if (p.IsIncapacitated())
     {
         local hunter = null;
-        while ((hunter = Entities.FindByClassnameWithin(hunter, "player", p.GetOrigin(), 120)) != null)
-            if (hunter.GetZombieType() == ZOMBIE_HUNTER && hunter.IsAlive())
+        while ((hunter = Entities.FindInSphere(hunter, p.GetOrigin(), 120)) != null)
+            if (hunter.GetClassname() == "player" && hunter.GetZombieType() == ZOMBIE_HUNTER && hunter.IsAlive())
                 return hunter;
     }
 
@@ -290,17 +290,26 @@ function VBI_FindGrabbedTeammate(bot)
 
 function VBI_Attack(bot, target)
 {
-    CommandABot({ bot = bot, cmd = DirectorScript.BOT_CMD_ATTACK, target = target });
+    bot.CommandAttack(target);
 }
 
 function VBI_Move(bot, pos)
 {
-    CommandABot({ bot = bot, cmd = DirectorScript.BOT_CMD_MOVE, pos = pos });
+    bot.CommandMove(pos);
 }
 
 function VBI_Reset(bot)
 {
-    CommandABot({ bot = bot, cmd = DirectorScript.BOT_CMD_RESET });
+    bot.CommandReset();
+}
+
+function GetInvTable(player, invTable)
+{
+    for (local i = 0; i < 5; i++)
+    {
+        local weapon = NetProps.GetPropEntity(player, "m_hMyWeapons", i);
+        if (weapon) invTable["slot" + i] <- weapon;
+    }
 }
 
 
@@ -568,22 +577,23 @@ function VBI_AttachDamageHook(bot)
     //   params.attacker     — entity that owns the inflictor
     scope["OnTakeDamage"] <- function(params)
     {
+        local victim = params.victim;
         // Only reduce damage for bots — human survivors get vanilla damage
-        if (!IsPlayerABot(self)) return;
+        if (!IsPlayerABot(victim)) return;
 
         local dtype = params.damage_type;
 
         if (dtype & DMG_BURN)
         {
             params.damage = params.damage * ::VBI_CFG.fire_damage_scale;
-            if (IsPlayerABot(self)) self.GetScriptScope()["last_hazard_time"] <- Time();
+            victim.GetScriptScope()["last_hazard_time"] <- Time();
             return;
         }
 
         if (dtype & DMG_POISON)
         {
             params.damage = params.damage * ::VBI_CFG.spit_damage_scale;
-            if (IsPlayerABot(self)) self.GetScriptScope()["last_hazard_time"] <- Time();
+            victim.GetScriptScope()["last_hazard_time"] <- Time();
             return;
         }
 
@@ -671,6 +681,31 @@ function VBI_CheckAmmo(bot)
     }
 }
 
+// Forces bots to switch back to primary weapon if they have ammo
+function IHateYouEllis()
+{
+    foreach (bot in VBI_GetBots())
+    {
+        if (!bot.IsAlive() || bot.IsIncapacitated()) continue;
+
+        local activeWeapon = bot.GetActiveWeapon();
+        if (activeWeapon == null) continue;
+
+        local cn = activeWeapon.GetClassname();
+        // If holding a pistol and has a primary weapon, switch back
+        if (cn == "weapon_pistol" || cn == "weapon_pistol_magnum")
+        {
+            local inv = {};
+            GetInvTable(bot, inv);
+            if ("slot0" in inv && inv.slot0 != null)
+            {
+                // Only switch if primary has some ammo or we don't care (since we refill ammo anyway)
+                bot.SwitchToItem(inv.slot0);
+            }
+        }
+    }
+}
+
 
 
 function VBI_RunAI()
@@ -712,9 +747,9 @@ function VBI_RunAI()
         // Shove visible enemies in melee range
         local ent = null;
         local shoved = false;
-        while ((ent = Entities.FindByClassnameWithin(ent, "player", bot.GetOrigin(), 120)) != null)
+        while ((ent = Entities.FindInSphere(ent, bot.GetOrigin(), 120)) != null)
         {
-            if (VBI_IsEnemy(ent) && VBI_CanSee(bot, ent))
+            if (ent.GetClassname() == "player" && VBI_IsEnemy(ent) && VBI_CanSee(bot, ent))
             {
                 ForcedButton(bot, ShoveButton);
                 shoved = true;
