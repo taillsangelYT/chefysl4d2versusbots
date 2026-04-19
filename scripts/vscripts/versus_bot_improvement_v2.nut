@@ -114,6 +114,12 @@ function VBI_Dist(a, b)
     return (a - b).Length();
 }
 
+function VBI_CanSee(bot, target)
+{
+    local traceTable = { start = bot.EyePosition(), end = target.EyePosition(), ignore = bot };
+    TraceLine(traceTable);
+    return traceTable.fraction == 1.0 || (("enthit" in traceTable) && traceTable.enthit == target);
+}
 
 
 function VBI_IsEnemy(ent)
@@ -126,11 +132,12 @@ function VBI_GetThreatScore(e)
 {
     local t = e.GetZombieType();
     if (t == ZOMBIE_TANK)    return 200;
-    if (t == ZOMBIE_SMOKER)  return 100;
+    if (t == ZOMBIE_BOOMER)  return 110;
+    if (t == ZOMBIE_SMOKER)  return 105;
     if (t == ZOMBIE_HUNTER)  return 95;
     if (t == ZOMBIE_JOCKEY)  return 90;
     if (t == ZOMBIE_CHARGER) return 85;
-    if (t == ZOMBIE_SPITTER) return 80;
+    if (t == ZOMBIE_SPITTER) return 85;
     return 10;
 }
 
@@ -145,6 +152,7 @@ function VBI_FindThreatForBot(bot)
     while ((ent = Entities.FindByClassname(ent, "player")) != null)
     {
         if (!VBI_IsEnemy(ent)) continue;
+        if (!VBI_CanSee(bot, ent)) continue;
 
         local baseScore = VBI_GetThreatScore(ent);
         local dist      = VBI_Dist(botPos, ent.GetOrigin());
@@ -250,16 +258,30 @@ function VBI_GetGrabber(p)
 }
 
 // FIX: Find any grabbed teammate. Returns { victim, grabber } or null.
+// Prioritizes the closest victim to the bot.
 function VBI_FindGrabbedTeammate(bot)
 {
+    local best = null;
+    local bestDist = 999999;
+    local botPos = bot.GetOrigin();
+
     foreach (p in VBI_GetAll())
     {
         if (!VBI_IsSurvivor(p)) continue;
         if (p == bot) continue;
         if (!VBI_IsGrabbed(p)) continue;
 
-        local grabber = VBI_GetGrabber(p);
-        return { victim = p, grabber = grabber };
+        local d = VBI_Dist(botPos, p.GetOrigin());
+        if (d < bestDist)
+        {
+            bestDist = d;
+            best = p;
+        }
+    }
+
+    if (best != null)
+    {
+        return { victim = best, grabber = VBI_GetGrabber(best) };
     }
     return null;
 }
@@ -340,6 +362,17 @@ function VBI_Position(bot)
     if (anchor == null) return;
 
     local dist = VBI_Dist(bot.GetOrigin(), anchor.GetOrigin());
+
+    // If taking hazard damage, move towards anchor to path out
+    if (bot.ValidateScriptScope())
+    {
+        local scope = bot.GetScriptScope();
+        if ("last_hazard_time" in scope && Time() - scope.last_hazard_time < 1.0)
+        {
+            VBI_Move(bot, anchor.GetOrigin());
+            return;
+        }
+    }
 
     if (dist > VBI_CFG.max_follow_distance)
     {
@@ -543,12 +576,14 @@ function VBI_AttachDamageHook(bot)
         if (dtype & DMG_BURN)
         {
             params.damage = params.damage * ::VBI_CFG.fire_damage_scale;
+            if (IsPlayerABot(self)) self.GetScriptScope()["last_hazard_time"] <- Time();
             return;
         }
 
         if (dtype & DMG_POISON)
         {
             params.damage = params.damage * ::VBI_CFG.spit_damage_scale;
+            if (IsPlayerABot(self)) self.GetScriptScope()["last_hazard_time"] <- Time();
             return;
         }
 
@@ -669,7 +704,25 @@ function VBI_RunAI()
             if (scope != null) scope["vbi_rescuing"] <- false;
         }
 
-        // Priority 2 — per-bot distance-weighted threat
+        // Priority 2 — Tactical Shoving
+        // Shove visible enemies in melee range
+        local ent = null;
+        local shoved = false;
+        while ((ent = Entities.FindByClassnameWithin(ent, "player", bot.GetOrigin(), 120)) != null)
+        {
+            if (VBI_IsEnemy(ent) && VBI_CanSee(bot, ent))
+            {
+                ForcedButton(bot, ShoveButton);
+                shoved = true;
+                break;
+            }
+        }
+        if (!shoved)
+        {
+            ReleaseForcedButton(bot, ShoveButton);
+        }
+
+        // Priority 3 — per-bot distance-weighted threat
         // FIX: Each bot picks its own nearest threat, not the global one
         local threat = VBI_FindThreatForBot(bot);
         if (threat != null && threat.IsAlive())
@@ -714,5 +767,22 @@ function Think()
     VBI_Think();
     return VBI_CFG.think_interval;
 }
+
+function OnGameEvent_player_spawn(event)
+{
+    local p = GetPlayerFromUserID(event.userid);
+    if (VBI_IsBot(p))
+    {
+        VBI_AttachDamageHook(p);
+    }
+}
+
+// Initial hook attachment for bots already in game
+foreach (bot in VBI_GetBots())
+{
+    VBI_AttachDamageHook(bot);
+}
+
+__CollectEventCallbacks(this, "OnGameEvent_", "GameEventCallbacks", 0);
 
 printl("[VBI] Advanced AI v2 Loaded");
