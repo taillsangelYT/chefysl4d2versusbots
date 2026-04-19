@@ -2,12 +2,12 @@ Msg("===================================\n");
 Msg(" Versus Bot Improvement v2 (Advanced)\n");
 Msg("===================================\n");
 
-GrenadierBots <- 1          // Default ON — set to 0 in cfg to disable
-MobSizeToThrowGrenade <- 4  // Lowered from 6; versus has smaller hordes
-UsePipeBomb <- 3            // 3 = commons + tank
-UseMolotov <- 3             // 3 = commons + tank (was 2 = tank only, which skipped commons)
-UseVomitjar <- 3            // 3 = commons + tank
-GrenadeThrowCooldown <- 0   // Legacy global fallback; per-bot timers now preferred
+GrenadierBots <- 1          
+MobSizeToThrowGrenade <- 4  
+UsePipeBomb <- 3            
+UseMolotov <- 3             
+UseVomitjar <- 3            
+GrenadeThrowCooldown <- 0   
 GrenadeAutoGive <- 0
 
 FireButton <- 1
@@ -40,32 +40,26 @@ ZOMBIE_SURVIVOR <- 9
     follow_distance         = 300.0,
     spread_distance         = 120.0,
     max_follow_distance     = 500.0,
-    rescue_check_interval   = 0.15,   // FIX: faster rescue polling
-    grenade_lock_duration   = 1.5,    // FIX: how long a bot stays in grenade mode
-    ammo_refill_threshold   = 30,     // Refill reserve ammo when it drops below this
-    ammo_refill_amount      = 200,    // How much reserve ammo to restore
-    // Damage reduction for hazards bots are slow to react to.
-    // 1.0 = full damage (vanilla), 0.0 = no damage, 0.25 = 25% of normal damage.
-    fire_damage_scale       = 0.25,   // Molotov / burning tank swipe fire
-    spit_damage_scale       = 0.25,   // Spitter acid pool
-    // Per-bot grenade throw cooldown in seconds
-    grenade_throw_cooldown  = 15.0,   // Min seconds between throws per bot
-    // Proximity radius to count nearby commons when deciding to throw
-    grenade_mob_radius      = 250.0,  // Units around bot to count common infected
-    // How close a tank/common must be before a bot will throw at it
+    rescue_check_interval   = 0.15,   
+    grenade_lock_duration   = 1.5,    
+    ammo_refill_threshold   = 30,    
+    ammo_refill_amount      = 200,    
+    fire_damage_scale       = 0.25,   
+    spit_damage_scale       = 0.25,   
+    grenade_throw_cooldown  = 15.0,   
+    grenade_mob_radius      = 250.0,  
     grenade_throw_range     = 600.0,
     debug                   = false
 };
 
-// FIX: Wire VBI_USER_SETTINGS into VBI_CFG on load
-// VBI_USER_SETTINGS is defined in versus_bot_improvement_settings.nut
+
 if ("VBI_USER_SETTINGS" in getroottable())
 {
     foreach (key, val in VBI_USER_SETTINGS)
     {
         if (key in VBI_CFG)
             VBI_CFG[key] = val;
-        // Engine convar overrides
+        
         if (key == "convar_overrides")
             foreach (cvar, cval in val)
                 SendToServerConsole(cvar + " " + cval);
@@ -79,9 +73,7 @@ if ("VBI_USER_SETTINGS" in getroottable())
     currentThreat   = null
 };
 
-//////////////////////////////////////////////////
-// BASIC HELPERS
-//////////////////////////////////////////////////
+
 
 function VBI_IsValidPlayer(p)
 {
@@ -122,9 +114,7 @@ function VBI_Dist(a, b)
     return (a - b).Length();
 }
 
-//////////////////////////////////////////////////
-// THREAT SYSTEM — PER-BOT DISTANCE-WEIGHTED
-//////////////////////////////////////////////////
+
 
 function VBI_IsEnemy(ent)
 {
@@ -174,7 +164,7 @@ function VBI_FindThreatForBot(bot)
     return best;
 }
 
-// FIX: Kept for backwards-compat / grenadier system; bots now use VBI_FindThreatForBot
+
 function VBI_FindThreat()
 {
     local best      = null;
@@ -197,9 +187,7 @@ function VBI_UpdateThreat()
     VBI_STATE.currentThreat    = VBI_FindThreat();
 }
 
-//////////////////////////////////////////////////
-// GRAB / INCAP RESCUE DETECTION  (NEW)
-//////////////////////////////////////////////////
+
 
 // FIX: Detect when a survivor is being controlled by a special infected
 // Covers: Smoker tongue, Hunter pounce, Jockey ride, Charger carry
@@ -276,9 +264,7 @@ function VBI_FindGrabbedTeammate(bot)
     return null;
 }
 
-//////////////////////////////////////////////////
-// COMMAND SYSTEM
-//////////////////////////////////////////////////
+
 
 function VBI_Attack(bot, target)
 {
@@ -295,9 +281,7 @@ function VBI_Reset(bot)
     CommandABot({ bot = bot, cmd = DirectorScript.BOT_CMD_RESET });
 }
 
-//////////////////////////////////////////////////
-// POSITIONING SYSTEM
-//////////////////////////////////////////////////
+
 
 // FIX: Anchor can now fall back to any survivor (bot or human) if no human is present
 function VBI_GetAnchor(bot)
@@ -316,7 +300,7 @@ function VBI_GetAnchor(bot)
         if (d < bestDist) { bestDist = d; best = p; }
     }
 
-    // FIX: Full-bot team fallback — anchor to nearest alive bot
+   
     if (best == null)
     {
         foreach (p in VBI_GetAll())
@@ -374,89 +358,6 @@ function VBI_Position(bot)
     VBI_Reset(bot);
 }
 
-//////////////////////////////////////////////////
-// GRENADE SYSTEM (preserved, bug fixes applied)
-//////////////////////////////////////////////////
-
-function MercilessToggleFileCheck(filename)
-{
-    local files = FileToString(filename);
-    if (!files) return false;
-    return true;
-}
-
-function GenerateGrenadeThrowFile()
-{
-    local DefaultToggleFile = "";
-    local CfgToggleFile =
-    [
-        "GrenadierBots 1",
-        "MobSizeToThrowGrenade 4",
-        "UsePipeBomb 3",
-        "UseMolotov 3",
-        "UseVomitjar 3",
-        "GrenadeAutoGive 1",
-        ".",
-        ".",
-        "// ====== TOGGLE SETTING INFO ======",
-        "//GrenadierBots= 0=Off (Default L4D2). 1=On, bots will pick & use grenades.",
-        "//MobSizeToThrowGrenade= Min common infected count before bots throw. Default 6.",
-        "//UsePipeBomb= 0=Off. 1=commons only. 2=tank only. 3=both.",
-        "//UseMolotov=  0=Off. 1=commons only. 2=tank (not burning). 3=both.",
-        "//UseVomitjar= 0=Off. 1=commons only. 2=tank (not burning). 3=both.",
-        "//GrenadeAutoGive= 1=bots give grenade to player they face who has none.",
-        ".",
-        "// =================================",
-        "//Notes: Delete file to regenerate defaults.",
-        "."
-    ];
-
-    foreach (line in CfgToggleFile)
-        DefaultToggleFile = DefaultToggleFile + line + "\n";
-
-    if (!MercilessToggleFileCheck("bots throw grenades cfg/bots throw grenades.txt"))
-    {
-        StringToFile("bots throw grenades cfg/bots throw grenades.txt", DefaultToggleFile);
-        printl("The 'bots throw grenades.txt' file can't be found. Generating new file...");
-    }
-}
-
-// FIX: Rewrote config loader — the original had a misplaced else that set
-// trigger=1 for every key that wasn't MobSizeToThrowGrenade (the else was
-// attached to the innermost if, not the outer if/else-if chain).
-function LoadSpecificConfigFile(filename)
-{
-    local files = FileToString(filename);
-    if (!files) return 0;
-
-    local toggles = split(files, "\r\n");
-    foreach (toggle in toggles)
-    {
-        if (!toggle || toggle == "") continue;
-        toggle = strip(toggle);
-
-        // Skip comments and section markers
-        if (toggle.find("//") == 0) continue;
-        if (toggle.find("===") != null) continue;
-        if (toggle == ".") continue;
-
-        local idx = toggle.find(" ");
-        if (idx == null) continue;
-
-        local cmd = toggle.slice(0, idx);
-        local val = toggle.slice(idx + 1);
-
-        // FIX: Each branch is now independent — no dangling else
-        if      (cmd == "GrenadierBots")         GrenadierBots         = val.tointeger();
-        else if (cmd == "MobSizeToThrowGrenade") MobSizeToThrowGrenade = val.tointeger();
-        else if (cmd == "UsePipeBomb")           UsePipeBomb           = val.tointeger();
-        else if (cmd == "UseMolotov")            UseMolotov            = val.tointeger();
-        else if (cmd == "UseVomitjar")           UseVomitjar           = val.tointeger();
-        else if (cmd == "GrenadeAutoGive")       GrenadeAutoGive       = val.tointeger();
-    }
-
-    return 1;
-}
 
 function VectorFromQAngle(angles, radius = 1.0)
 {
@@ -789,17 +690,7 @@ function OnGameEvent_weapon_reload(event)
     }
 }
 
-function OnGameEvent_round_start_post_nav(event)
-{
-    printl("The 'BOTS THROW GRENADES' mod is launched.");
-    if (!MercilessToggleFileCheck("bots throw grenades cfg/bots throw grenades.txt"))
-        GenerateGrenadeThrowFile();
-    LoadSpecificConfigFile("bots throw grenades cfg/bots throw grenades.txt");
 
-    // Attach damage hooks to any bots already in the server at round start
-    foreach (bot in VBI_GetBots())
-        VBI_AttachDamageHook(bot);
-}
 
 function IsLookingAtTarget(kent, classname)
 {
@@ -819,23 +710,6 @@ function IsLookingAtTarget(kent, classname)
         return hit.GetClassname() == classname && hit.GetHealth() > 0;
 }
 
-function GiveGrenade(kent)
-{
-    local traceEndpoint = kent.EyePosition() + VectorFromQAngle(kent.EyeAngles(), 666666);
-    local traceTable = { start = kent.EyePosition(), end = traceEndpoint, ignore = kent };
-    if (!TraceLine(traceTable)) return;
-    if (!("enthit" in traceTable)) return;
-
-    local hit = traceTable.enthit;
-    if (!kent.IsSurvivor() || hit.GetClassname() != "player") return;
-    if (!hit.IsSurvivor() || IsPlayerABot(hit) || hit.IsDead()) return;
-    if (GetThrowableSlot(kent) == null || GetThrowableSlot(hit) != null) return;
-    if ((kent.GetOrigin() - hit.GetOrigin()).Length() > 150) return;
-
-    hit.GiveItem(GetThrowableSlot(kent));
-    EmitSoundOnClient("Hint.LittleReward", hit);
-    GetThrowableRemoved(kent);
-}
 
 function GetCommonZombieWithin(player, range)
 {
@@ -1122,9 +996,7 @@ function VBI_CheckAmmo(bot)
     }
 }
 
-//////////////////////////////////////////////////
-// MAIN AI — now with grab-rescue priority
-//////////////////////////////////////////////////
+
 
 function VBI_RunAI()
 {
@@ -1172,42 +1044,7 @@ function VBI_RunAI()
         VBI_CheckAmmo(bot);
 }
 
-//////////////////////////////////////////////////
-// Primary Weapon Enforcer
-/////////////////////////////////////////////////
-printl("Bot Primary Weapon Enforcer script by RF");
 
-function IHateYouEllis()
-{
-    local playarr = null;
-    while(playarr = Entities.FindByClassname(playarr, "player"))
-    {
-        if(playarr.IsSurvivor() && !playarr.IsDead() && !playarr.IsIncapacitated() && IsPlayerABot(playarr) && playarr.GetActiveWeapon() != null)
-        {
-            local AWClass = playarr.GetActiveWeapon().GetClassname();
-            if(AWClass == "weapon_pistol" || AWClass == "weapon_pistol_magnum" || AWClass == "weapon_melee" || AWClass == "weapon_chainsaw")
-            {
-                local inv = {};
-                GetInvTable(playarr , inv);
-                if("slot0" in inv)
-                {
-                    local PrimType = NetProps.GetPropInt(inv.slot0, "m_iPrimaryAmmoType");
-                    if(NetProps.GetPropIntArray(playarr, "m_iAmmo", PrimType) > 0)
-                    {
-                        playarr.SwitchToItem(inv.slot0.GetClassname());
-                        NetProps.SetPropFloat(inv.slot0, "LocalActiveWeaponData.m_flNextPrimaryAttack", 0.0);
-                        NetProps.SetPropFloat(inv.slot0, "LocalActiveWeaponData.m_flNextSecondaryAttack", 0.0);
-                        // ^ Makes the bots able to attack instantly
-                        // Shadowysn: I know you may not want the bots to be able to skip one of their attacking delays and get a 
-                        // miniscule advantage to shoot immediately but as a trade-off, SwitchToItem reduces the invisible guns 
-                        // to a small flicker rather than being forever invisible until another gun switch is performed
-                        // Reload bug where they reset their reload timer again when they attempt to switch is still here tho
-                    }
-                }
-            }
-        }
-    }
-}
 
 //////////////////////////////////////////////////
 // LOOP
